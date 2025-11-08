@@ -1,27 +1,26 @@
 /////////--------IOT--------FIAP------------///////////
+/////////--------SIMULAÇÃO GALPÃO MANGÁ------///////////
 
 #include <Arduino.h>
-
 #include <WiFi.h>
 #include <ArduinoJson.h>
-#include <DHTesp.h>
+// #include <DHTesp.h>
 #include <PubSubClient.h>
 
 
 // Configurações de WiFi
 const char *SSID = "Wokwi-GUEST";
-const char *PASSWORD = "";  // Substitua pelo sua senha
+const char *PASSWORD = "";
 
 // Configurações de MQTT
-// const char *BROKER_MQTT = "54.157.123.32";
-const char *BROKER_MQTT = "broker.hivemq.com"; // Exemplo de broker público
+const char *BROKER_MQTT = "broker.hivemq.com";
 const int BROKER_PORT = 1883;
-const char *ID_MQTT = "esp32_mqtt-tioza";
+const char *ID_MQTT = "Catech_ESP32"; // Mantenha ou troque se precisar
 const char *TOPIC_SUBSCRIBE_LED = "fe20/iot/led";
-const char *TOPIC_PUBLISH_TEMP_HUMI = "fe20/iot/temphumi";
+const char *TOPIC_PUBLISH_TEMP_HUMI = "catech_tempumi"; // Este é o tópico que o Node-RED vai ouvir
 
 // Configurações de Hardware
-#define PIN_DHT 12
+// #define PIN_DHT 12
 #define PIN_LED 15
 #define PUBLISH_DELAY 2000
 
@@ -29,16 +28,18 @@ const char *TOPIC_PUBLISH_TEMP_HUMI = "fe20/iot/temphumi";
 // Variáveis globais
 WiFiClient espClient;
 PubSubClient MQTT(espClient);
-DHTesp dht;
+// DHTesp dht;
 unsigned long publishUpdate = 0;
-TempAndHumidity sensorValues;
+// TempAndHumidity sensorValues;
 const int TAMANHO = 200;
-float lastTemperature = NAN;
-float lastHumidity = NAN;
+
+// Variáveis para lógica de "só publicar se mudar"
+float lastTemperature = 0.0; // Iniciando com 0 para forçar a primeira publicação
+float lastHumidity = 0.0;
 bool lastLedState = LOW;
 
 // Protótipos de funções
-void updateSensorValues();
+// void updateSensorValues();
 void initWiFi();
 void initMQTT();
 void callbackMQTT(char *topic, byte *payload, unsigned int length);
@@ -46,9 +47,9 @@ void reconnectMQTT();
 void reconnectWiFi();
 void checkWiFIAndMQTT();
 
-void updateSensorValues() {
-  sensorValues = dht.getTempAndHumidity();
-}
+// void updateSensorValues() {
+//  sensorValues = dht.getTempAndHumidity();
+// }
 
 void initWiFi() {
   Serial.print("Conectando com a rede: ");
@@ -65,6 +66,9 @@ void initWiFi() {
   Serial.println(SSID);
   Serial.print("IP: ");
   Serial.println(WiFi.localIP());
+
+  // Inicia o gerador de números aleatórios
+  randomSeed(analogRead(0));
 }
 
 void initMQTT() {
@@ -72,21 +76,18 @@ void initMQTT() {
   MQTT.setCallback(callbackMQTT);
 }
 
+// Esta função continua igual, para você poder "controlar" o LED
 void callbackMQTT(char *topic, byte *payload, unsigned int length) {
   String msg = String((char*)payload).substring(0, length);
-  
-  //Serial.printf("Mensagem recebida via MQTT: %s do tópico: %s\n", msg.c_str(), topic);
 
-  //StaticJsonDocument<TAMANHO> json; //era assim na versao 6
   JsonDocument json;
   DeserializationError error = deserializeJson(json, msg);
-  
+
   if (error) {
     Serial.println("Falha na deserialização do JSON.");
     return;
   }
 
-  //if (json.containsKey("led")) {  //era assim na versao 6
   if (json["led"].is<int>()) {
     int valor = json["led"];
     if (valor == 1) {
@@ -124,7 +125,7 @@ void reconnectWiFi(void)
   if (WiFi.status() == WL_CONNECTED)
     return;
 
-  WiFi.begin(SSID, PASSWORD); // Conecta na rede WI-FI
+  WiFi.begin(SSID, PASSWORD);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(100);
@@ -143,7 +144,9 @@ void setup() {
 
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, LOW);
-  dht.setup(PIN_DHT, DHTesp::DHT22);
+
+  // dht.setup(PIN_DHT, DHTesp::DHT22);
+
   initWiFi();
   initMQTT();
 }
@@ -154,48 +157,47 @@ void loop() {
 
   if ((millis() - publishUpdate) >= PUBLISH_DELAY) {
     publishUpdate = millis();
-    updateSensorValues();
 
+    // updateSensorValues(); // Substituído pela simulação abaixo
+
+    // ####### INÍCIO DA SIMULAÇÃO #######
+
+    // Simula Temperatura entre 18.00 e 26.00
+    // random(min, max_exclusivo)
+    float newTemperature = random(1800, 2601) / 100.0;
+
+    // Simula Umidade entre 40.00 e 60.00
+    float newHumidity = random(4000, 6001) / 100.0;
+
+    bool currentLedState = digitalRead(PIN_LED);
+
+    // ####### FIM DA SIMULAÇÃO #######
+
+
+    // Lógica para só publicar se o valor mudar (ótima prática)
     bool changed =
-      sensorValues.temperature != lastTemperature ||
-      sensorValues.humidity != lastHumidity ||
-      digitalRead(PIN_LED) != lastLedState;
+      newTemperature != lastTemperature ||
+      newHumidity != lastHumidity ||
+      currentLedState != lastLedState;
 
-    if (!isnan(sensorValues.temperature) && !isnan(sensorValues.humidity) && changed) {
-      lastTemperature = sensorValues.temperature;
-      lastHumidity = sensorValues.humidity;
-      lastLedState = digitalRead(PIN_LED);
+    if (changed) {
+      lastTemperature = newTemperature;
+      lastHumidity = newHumidity;
+      lastLedState = currentLedState;
 
-      //StaticJsonDocument<TAMANHO> doc; //era assim na versao 6
       JsonDocument doc;
-      doc["temperatura"] = sensorValues.temperature;
-      doc["umidade"] = sensorValues.humidity;
+      doc["temperatura"] = lastTemperature;
+      doc["umidade"] = lastHumidity;
       doc["status_led"] = lastLedState ? "on" : "off";
 
       char buffer[TAMANHO];
       serializeJson(doc, buffer);
       MQTT.publish(TOPIC_PUBLISH_TEMP_HUMI, buffer);
+
+      Serial.print("Publicado (mudou): ");
       Serial.println(buffer);
+    } else {
+      Serial.println("Valores iguais, não publicando.");
     }
   }
 }
-
-
-
-
-
-
-
-
-
-///// --------variação para publicar MQTT apenas se houver mudança do sensor
-
-// // Variáveis globais para armazenar os últimos valores de temperatura e umidade
-// float lastTemperature = NAN;
-// float lastHumidity = NAN;
-      // // Verificar se os novos valores de temperatura e umidade são diferentes dos últimos valores armazenados
-      // if (sensorValues.temperature != lastTemperature || sensorValues.humidity != lastHumidity) {
-
-        // // Atualizar os valores armazenados com os novos valores
-        // lastTemperature = sensorValues.temperature;
-        // lastHumidity = sensorValues.humidity;
